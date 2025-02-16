@@ -310,11 +310,11 @@ class InstallCommand extends CatchCommand
      */
     public function installed(): void
     {
-        $this->cloneWeb();
+//        $this->cloneWeb();
 
         $this->addPsr4Autoload();
 
-        $this->info('🎉 CatchAdmin 已安装, 欢迎!');
+        $this->info('🎉 Laravel Admin 已安装, 欢迎!');
 
         $this->output->info(sprintf('
  /------------------------ welcome ----------------------------\
@@ -329,7 +329,7 @@ class InstallCommand extends CatchCommand
  初始账号: catch@admin.com
  初始密码: catchadmin', CatchAdmin::VERSION));
 
-        $this->support();
+//        $this->support();
     }
 
     /**
