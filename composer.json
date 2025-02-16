@@ -1,0 +1,36 @@
+{
+    "name": "laravel-prod/core",
+    "description": "laravel-prod core package",
+    "type": "library",
+    "require": {
+        "php": "^8.2",
+        "ext-pdo": "*",
+        "ext-zip": "*",
+        "laravel/sanctum": "^v4.0.0",
+        "maatwebsite/excel": "^3.1.55",
+        "laravel/prompts": "^v0.1.16"
+    },
+    "license": "MIT",
+    "autoload": {
+        "files": [
+            "src/Support/helpers.php"
+        ],
+        "psr-4": {
+            "Catch\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "JaguarJack",
+            "email": "njphper@gmail.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Catch\\Providers\\CatchAdminServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev"
+}
