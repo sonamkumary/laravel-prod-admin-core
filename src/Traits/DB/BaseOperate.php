@@ -23,7 +23,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
-
+use Illuminate\Http\Request as HttpRequest;
 /**
  * base operate
  */
@@ -39,12 +39,12 @@ trait BaseOperate
         $fields = property_exists($this, 'fields') ? $this->fields : ['*'];
 
         $builder = static::select($fields)
-                    ->creator()
-                    ->quickSearch();
+            ->creator()
+            ->quickSearch();
 
         // 数据权限
         if ($this->dataRange) {
-           $builder = $builder->dataRange();
+            $builder = $builder->dataRange();
         }
 
         // before list
@@ -76,6 +76,103 @@ trait BaseOperate
         }
 
         return $data;
+    }
+
+    public function search(HttpRequest $request): mixed
+    {
+        $fields = property_exists($this, 'fields') ? $this->fields : ['*'];
+        list($page, $limit, $where) = $this->buildTableParams($request);
+        $builder = static::select($fields)
+            ->creator()
+            ->quickSearch();
+
+        // 数据权限
+        if ($this->dataRange) {
+            $builder = $builder->dataRange();
+        }
+        //查询条件
+        $builder = $builder->where($where);
+
+        // before list
+        if ($this->beforeGetList instanceof Closure) {
+            $builder = call_user_func($this->beforeGetList, $builder);
+        }
+
+        // 排序
+        if ($this->sortField && in_array($this->sortField, $this->getFillable())) {
+            $builder = $builder->orderBy($this->aliasField($this->sortField), $this->sortDesc ? 'desc' : 'asc');
+        }
+
+        // 动态排序
+        $dynamicSortField = Request::get('sortField');
+        if ($dynamicSortField && $dynamicSortField <> $this->sortField) {
+            $builder = $builder->orderBy($this->aliasField($dynamicSortField),  Request::get('order', 'asc'));
+        }
+        $builder = $builder->orderByDesc($this->aliasField($this->getKeyName()));
+
+        // 分页
+        if ($this->isPaginate) {
+            return $builder->paginate(Request::get('limit', $this->perPage));
+        }
+
+        $data = $builder->get();
+        // if set as tree, it will show tree data
+        if ($this->asTree) {
+            return $data->toTree();
+        }
+
+        return response()->json($data);
+    }
+
+    /**
+     * 构建请求参数
+     * @param array $excludeFields 忽略构建搜索的字段
+     * @return array
+     */
+    protected function buildTableParams(HttpRequest $request,array $excludeFields = []): array
+    {
+        $get     = $request->input();
+        $page    = !empty($get['page']) ? $get['page'] : 1;
+        $limit   = !empty($get['limit']) ? $get['limit'] : 10;
+        $filters = !empty($get['filter']) ? $get['filter'] : [];
+        $ops     = !empty($get['op']) ? $get['op'] : [];
+        // json转数组
+        $where    = [];
+        $excludes = [];
+
+        foreach ($filters as $key => $val) {
+            if (in_array($key, $excludeFields)) {
+                $excludes[$key] = $val;
+                continue;
+            }
+            $op = !empty($ops[$key]) ? $ops[$key] : '%*%';
+
+            switch (strtolower($op)) {
+                case '=':
+                    $where[] = [$key, '=', $val];
+                    break;
+                case '%*%':
+                    $where[] = [$key, 'LIKE', "%{$val}%"];
+                    break;
+                case '*%':
+                    $where[] = [$key, 'LIKE', "{$val}%"];
+                    break;
+                case '%*':
+                    $where[] = [$key, 'LIKE', "%{$val}"];
+                    break;
+                case 'in':
+                    $where[] = [DB::raw("$key IN ($val)"), 1];
+                    break;
+                case 'range':
+                    [$beginTime, $endTime] = explode(' - ', $val);
+                    $where[] = [$key, '>=', strtotime($beginTime)];
+                    $where[] = [$key, '<=', strtotime($endTime)];
+                    break;
+                default:
+                    $where[] = [$key, $op, "%{$val}"];
+            }
+        }
+        return [$page, $limit, $where, $excludes];
     }
 
 
