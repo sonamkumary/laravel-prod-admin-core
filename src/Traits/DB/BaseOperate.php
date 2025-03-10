@@ -124,6 +124,66 @@ trait BaseOperate
         return response()->json($data);
     }
 
+    public function export(HttpRequest $request, array $noExportFields = []): mixed
+    {
+        $fields = property_exists($this, 'fields') ? $this->fields : ['*'];
+        list($page, $limit, $where) = $this->buildTableParams($request);
+        $builder = static::select($fields)
+            ->creator()
+            ->quickSearch();
+
+        // 数据权限
+        if ($this->dataRange) {
+            $builder = $builder->dataRange();
+        }
+        //查询条件
+        $builder = $builder->where($where);
+
+        // before list
+        if ($this->beforeGetList instanceof Closure) {
+            $builder = call_user_func($this->beforeGetList, $builder);
+        }
+
+        // 排序
+        if ($this->sortField && in_array($this->sortField, $this->getFillable())) {
+            $builder = $builder->orderBy($this->aliasField($this->sortField), $this->sortDesc ? 'desc' : 'asc');
+        }
+
+        // 动态排序
+        $dynamicSortField = Request::get('sortField');
+        if ($dynamicSortField && $dynamicSortField <> $this->sortField) {
+            $builder = $builder->orderBy($this->aliasField($dynamicSortField),  Request::get('order', 'asc'));
+        }
+        $builder = $builder->orderByDesc($this->aliasField($this->getKeyName()));
+        $list = $builder->get();
+        $tableName = $this->getTable();
+        $prefix    = '';
+        $dbList    = \Illuminate\Support\Facades\DB::select("show full columns from {$prefix}{$tableName}");
+        $header    = [];
+        foreach ($dbList as $vo) {
+            $comment = !empty($vo->Comment) ? $vo->Comment : $vo->Field;
+            if (!in_array($vo->Field, $noExportFields)) {
+                $header[] = [$comment, $vo->Field];
+            }
+        }
+        $list     = $list->toArray();
+        $fileName = time();
+        return Excel::exportData($list, $header, $fileName, 'xlsx');
+    }
+
+    /**
+     * 驼峰转下划线
+     * @param $str
+     * @return array|string|null
+     */
+    public function humpToLine($str): array|string|null
+    {
+        $str = preg_replace_callback('/([A-Z]{1})/', function ($matches) {
+            return '_' . strtolower($matches[0]);
+        }, $str);
+        return $str;
+    }
+
     /**
      * 构建请求参数
      * @param array $excludeFields 忽略构建搜索的字段
@@ -297,11 +357,17 @@ trait BaseOperate
     {
         /* @var Model $model */
         $model = static::find($id);
+        // 如果model有parent_id字段
+        if($model->hasAttribute('parent_id') ){
+            $parentIdColumn = $this->getParentIdColumn();
+            // 如果没有返回有效的parent_id字段名，则跳过相关检查
+            if ($parentIdColumn && in_array($parentIdColumn, $this->getFillable())) {
+                // 如果模型中存在 parent_id 字段并且有子级记录
+                if ($this->where($parentIdColumn, $model->id)->first()) {
+                    throw new FailedException('请先删除子级');
+                }
+            }
 
-        if (in_array($this->getParentIdColumn(), $this->getFillable())
-            && $this->where($this->getParentIdColumn(), $model->id)->first()
-        ) {
-            throw new FailedException('请先删除子级');
         }
 
         if ($force) {
