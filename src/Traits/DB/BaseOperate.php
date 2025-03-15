@@ -124,7 +124,86 @@ trait BaseOperate
         return response()->json($data);
     }
 
-    public function export(HttpRequest $request, array $noExportFields = []): mixed
+    public function importExcel(HttpRequest $request, array $importTitle = []): mixed
+    {
+        // 获取上传文件
+        $file = $request->file('file');
+        if (!$file->isValid()) {
+            throw new FailedException('上传文件无效');
+        }
+        // 解析excel
+        // 对接 public static function import($filePath, $startRow = 1, $hasImg = false, $suffix = 'Xlsx', $imageFilePath = null)
+        $data = Excel::import($file->getRealPath(), 1, false, 'Xlsx');
+        // 返回消息
+        // 第一行为Excel表头
+        $excel_title = $data[0];
+        // 第二行开始为数据
+        $excel_data = array_slice($data, 1);
+        // 从请求获取data 表字段对应关系
+        $meata_data_value = $request->input('data');
+        // $meta_data参考格式 {"data":[{"key":"content_title","value":"文章标题"},{"key":"content_details","value":"文章内容"}],"unique":["content_title"]}
+        $meta_data = json_decode($meata_data_value, true);
+        //[{"key":"content_title","value":"文章标题"},{"key":"content_details","value":"文章内容"}]
+        $meta_mapping = $meta_data['data'];
+        //["content_title"]
+        $unique = $meta_data['unique'];
+        // 生成需要保存的数据为array
+        DB::beginTransaction();
+        try {
+            $importCount = 0;
+            $updateCount = 0;
+            foreach ($excel_data as $row) {
+                // 将行数据与标题组合成关联数组
+                $rowData = array_combine($excel_title, $row);
+                // 构建数据库字段映射
+                $mappedData = [];
+                foreach ($meta_mapping as $mapping) {
+                    $excelHeader = $mapping['value'];
+                    $dbField = $mapping['key'];
+                    if (isset($rowData[$excelHeader])) {
+                        // 这里可以添加数据格式转换逻辑
+                        $mappedData[$dbField] = $rowData[$excelHeader];
+                    }
+                }
+                // 构建唯一性查询条件
+                $uniqueConditions = [];
+                foreach ($unique as $uniqueField) {
+                    if (isset($mappedData[$uniqueField])) {
+                        $uniqueConditions[$uniqueField] = $mappedData[$uniqueField];
+                    }
+                }
+                // 执行插入/更新操作
+                if (!empty($uniqueConditions)) {
+                    $model = $this->updateOrCreate(
+                        $uniqueConditions,
+                        $mappedData
+                    );
+                    $model->wasRecentlyCreated ? $importCount++ : $updateCount++;
+                } else {
+                    // 没有唯一约束直接创建
+                    $this->save($mappedData);
+                    $importCount++;
+                }
+            }
+            DB::commit();
+            $message = [
+                'message' => '导入成功',
+                'stats' => [
+                    'created' => $importCount,
+                    'updated' => $updateCount
+                ]
+            ];
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => '导入失败: ' . $e->getMessage()
+            ], 500);
+        }
+        return response()->json($message);
+    }
+
+    public function exportExcel(HttpRequest $request, array $noExportFields = []): mixed
     {
         $fields = property_exists($this, 'fields') ? $this->fields : ['*'];
         list($page, $limit, $where) = $this->buildTableParams($request);
