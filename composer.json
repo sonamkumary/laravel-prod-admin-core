@@ -8,7 +8,7 @@
         "ext-zip": "*",
         "laravel/sanctum": "^v4.0.0",
         "maatwebsite/excel": "^3.1.55",
-        "laravel/prompts": "^v0.1.16"
+        "laravel/prompts": "^0.3.0"
     },
     "license": "MIT",
     "autoload": {
